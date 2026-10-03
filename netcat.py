@@ -1,48 +1,235 @@
 import argparse
+from concurrent.futures import ThreadPoolExecutor
 import socket
 import shlex
+import ssl
 import subprocess
 import sys
 import textwrap
 import threading
-from concurrent.futures import ThreadPoolExecutor
+
 
 def execute(cmd):
     cmd = cmd.strip()
     if not cmd:
-        return
+        return None
     output = subprocess.check_output(shlex.split(cmd), stderr=subprocess.STDOUT)
 
     return output.decode()
 
+
+def scan_port(host, port):
+    try:
+        sock = socket.socket(
+            socket.AF_INET,
+            socket.SOCK_STREAM
+        )
+
+        sock.settimeout(1)
+
+        result = sock.connect_ex(
+            (host, port)
+        )
+
+        sock.close()
+
+        if result == 0:
+            return port
+
+        return None
+
+    except Exception:
+        return None
+
+
+def get_banner(host, port):
+
+    try:
+        sock = socket.socket(
+            socket.AF_INET,
+            socket.SOCK_STREAM
+        )
+
+        sock.settimeout(3)
+
+        sock.connect((host, port))
+
+        #
+        # Alguns serviços enviam banner automaticamente
+        #
+        try:
+            banner = sock.recv(1024)
+
+            if banner:
+                sock.close()
+
+                return banner.decode(
+                    errors='ignore'
+                ).strip()
+
+        except:
+            pass
+
+        #
+        # Outros precisam receber algo
+        #
+        try:
+
+            if port in (80, 8080):
+                sock.send(b'HEAD / HTTP/1.0\r\n\r\n')
+            elif port == 443:
+                context = ssl.create_default_context()
+                ssl_sock = context.wrap_socket(sock, server_hostname=host)
+                ssl_sock.send(b'HEAD / HTTP/1.1\r\n\r\n')
+                banner = ssl_sock.recv(4096)
+                ssl_sock.close()
+                return banner.decode(errors='ignore').strip()
+            else:
+                sock.send(b'\r\n')
+
+            banner = sock.recv(1024)
+
+            sock.close()
+
+            if banner:
+                return banner.decode(
+                    errors='ignore'
+                ).strip()
+
+        except:
+            pass
+
+        sock.close()
+
+        return 'Banner não disponível'
+
+    except Exception:
+        return 'Banner não disponível'
+
+
 class PyNetCat:
 
     COMMON_PORTS = {
-        20: "FTP-DATA",
+        1: "TCPMUX",
+        7: "Echo",
+        9: "Discard / Wake-on-LAN",
+        13: "Daytime",
+        17: "QOTD",
+        19: "Character Generator",
+        20: "FTP Data",
         21: "FTP",
-        22: "SSH",
-        23: "TELNET",
+        22: "SSH / SFTP / SCP",
+        23: "Telnet",
         25: "SMTP",
+        26: "SMTP",
+        37: "Time",
+        42: "WINS / Nameserver",
+        43: "WHOIS",
+        49: "TACACS",
         53: "DNS",
+        70: "Gopher",
+        79: "Finger",
         80: "HTTP",
+        88: "Kerberos",
+        109: "POP2",
         110: "POP3",
-        111: "RPC",
-        135: "MSRPC",
-        139: "NETBIOS",
+        111: "ONC RPC",
+        113: "Ident",
+        119: "NNTP",
+        123: "NTP",
+        135: "Microsoft RPC",
+        137: "NetBIOS Session Service",
+        138: "NetBIOS Session Service",
+        139: "NetBIOS Session Service",
         143: "IMAP",
+        161: "SNMP",
+        162: "SNMP",
+        179: "BGP",
+        194: "IRC",
+        199: "SMUX",
+        264: "BGMP",
+        366: "ODMR",
+        389: "LDAP",
+        427: "SLP",
         443: "HTTPS",
-        445: "SMB",
+        444: "SNPP",
+        445: "Microsoft SMB",
+        464: "Kerberos Password",
+        465: "SMTPS",
+        475: "tcpnethaspsrv",
+        497: "Retrospect",
+        500: "IPsec IKE",
+        512: "rexec",
+        513: "rlogin",
+        514: "Syslog / rsh",
+        515: "LPD",
+        524: "NCP",
+        543: "klogin",
+        544: "kshell",
+        548: "AFP",
+        554: "RTSP",
+        563: "NNTPS",
+        587: "SMTP Submission",
+        593: "Microsoft RPC over HTTP",
+        631: "IPP / CUPS",
+        636: "LDAPS",
+        646: "LDP",
+        648: "RRP",
+        666: "Doom",
+        691: "MS Exchange Routing",
+        700: "EPP",
+        711: "Cisco TDP",
+        749: "Kerberos Administration",
+        783: "SpamAssassin",
+        800: "mdbs-daemon",
+        808: "Microsoft Net.TCP",
+        843: "Adobe Flash Policy",
+        873: "rsync",
+        888: "CDDB",
+        902: "VMware",
+        981: "SofaWare",
+        987: "Microsoft RPC",
+        990: "FTPS",
+        992: "Telnet TLS",
         993: "IMAPS",
         995: "POP3S",
-        1433: "MSSQL",
-        1521: "ORACLE",
-        3306: "MYSQL",
-        3389: "RDP",
-        5432: "POSTGRESQL",
+        1080: "SOCKS Proxy",
+        1194: "OpenVPN",
+        1234: "VLC / Infoseek",
+        1433: "Microsoft SQL Server",
+        1434: "Microsoft SQL Monitor",
+        1521: "Oracle Database",
+        1723: "PPTP",
+        1812: "RADIUS Authentication",
+        1900: "SSDP",
+        1935: "RTMP",
+        2049: "NFS",
+        2525: "SMTP",
+        3000: "HBCI / Grafana",
+        3128: "Squid Proxy",
+        3268: "Active Directory Global Catalog",
+        3269: "Active Directory Global Catalog SSL",
+        3306: "MySQL / MariaDB",
+        3389: "Remote Desktop Protocol",
+        3690: "Subversion",
+        5000: "Aplicações web / UPnP",
+        5060: "SIP",
+        5061: "SIP TLS",
+        5222: "XMPP Client",
+        5269: "XMPP Server",
+        5432: "PostgreSQL",
         5900: "VNC",
-        6379: "REDIS",
-        8080: "HTTP-ALT",
-        8443: "HTTPS-ALT"
+        6379: "Redis",
+        6667: "IRC",
+        6881: "BitTorrentClient",
+        8000: "IRDMI",
+        8080: "HTTP alternativo / Proxy",
+        8443: "HTTPS alternativo",
+        8888: "Aplicações web / Jupyter",
+        9200: "Elasticsearch",
+        9418: "Git",
+        27017: "MongoDB"
+
     }
 
     def __init__(self, args, buffer=None):
@@ -59,29 +246,6 @@ class PyNetCat:
         else:
             self.send()
 
-    def scan_port(self, host, port):
-        try:
-            sock = socket.socket(
-                socket.AF_INET,
-                socket.SOCK_STREAM
-            )
-
-            sock.settimeout(1)
-
-            result = sock.connect_ex(
-                (host, port)
-            )
-
-            sock.close()
-
-            if result == 0:
-                return port
-
-            return None
-
-        except Exception:
-            return None
-
     def scan_common_ports(self):
         host = self.args.target
 
@@ -93,7 +257,7 @@ class PyNetCat:
 
             futures = [
                 executor.submit(
-                    self.scan_port,
+                    scan_port,
                     host,
                     port
                 )
@@ -106,13 +270,21 @@ class PyNetCat:
 
                 if port:
 
+                    banner = get_banner(host, port)
+
+                    for line in banner.splitlines():
+                        if line.lower().startswith('server:'):
+                            banner_server = line
+                        else:
+                            banner_server = banner
+
                     service = self.COMMON_PORTS.get(
                         port,
                         "UNKNOWN"
                     )
 
                     print(
-                        f'[OPEN] {port:<5} {service}'
+                        f'[OPEN] {port:<5} {service} - {banner_server}'
                     )
 
     def send(self):
