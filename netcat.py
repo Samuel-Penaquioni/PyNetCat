@@ -5,6 +5,7 @@ import subprocess
 import sys
 import textwrap
 import threading
+from concurrent.futures import ThreadPoolExecutor
 
 def execute(cmd):
     cmd = cmd.strip()
@@ -14,7 +15,36 @@ def execute(cmd):
 
     return output.decode()
 
-class NetCat:
+class PyNetCat:
+
+    COMMON_PORTS = {
+        20: "FTP-DATA",
+        21: "FTP",
+        22: "SSH",
+        23: "TELNET",
+        25: "SMTP",
+        53: "DNS",
+        80: "HTTP",
+        110: "POP3",
+        111: "RPC",
+        135: "MSRPC",
+        139: "NETBIOS",
+        143: "IMAP",
+        443: "HTTPS",
+        445: "SMB",
+        993: "IMAPS",
+        995: "POP3S",
+        1433: "MSSQL",
+        1521: "ORACLE",
+        3306: "MYSQL",
+        3389: "RDP",
+        5432: "POSTGRESQL",
+        5900: "VNC",
+        6379: "REDIS",
+        8080: "HTTP-ALT",
+        8443: "HTTPS-ALT"
+    }
+
     def __init__(self, args, buffer=None):
         self.args = args
         self.buffer = buffer
@@ -22,10 +52,68 @@ class NetCat:
         self.socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
 
     def run(self):
-        if self.args.listen:
+        if self.args.scan:
+            self.scan_common_ports()
+        elif self.args.listen:
             self.listen()
         else:
             self.send()
+
+    def scan_port(self, host, port):
+        try:
+            sock = socket.socket(
+                socket.AF_INET,
+                socket.SOCK_STREAM
+            )
+
+            sock.settimeout(1)
+
+            result = sock.connect_ex(
+                (host, port)
+            )
+
+            sock.close()
+
+            if result == 0:
+                return port
+
+            return None
+
+        except Exception:
+            return None
+
+    def scan_common_ports(self):
+        host = self.args.target
+
+        print(f'\nScanning {host}...\n')
+
+        with ThreadPoolExecutor(
+                max_workers=100
+        ) as executor:
+
+            futures = [
+                executor.submit(
+                    self.scan_port,
+                    host,
+                    port
+                )
+                for port in self.COMMON_PORTS
+            ]
+
+            for future in futures:
+
+                port = future.result()
+
+                if port:
+
+                    service = self.COMMON_PORTS.get(
+                        port,
+                        "UNKNOWN"
+                    )
+
+                    print(
+                        f'[OPEN] {port:<5} {service}'
+                    )
 
     def send(self):
         self.socket.connect((self.args.target, self.args.port))
@@ -115,11 +203,12 @@ if __name__ == '__main__':
     parser.add_argument('-p', '--port', type=int, default=5555, help='specifed port')
     parser.add_argument('-t', '--target', default='192.168.1.203', help='specified IP')
     parser.add_argument('-u', '--upload', help='upload file')
+    parser.add_argument('-s', '--scan', action='store_true', help='scan common ports')
     args = parser.parse_args()
-    if args.listen:
+    if args.listen or args.scan:
         buffer = ''
     else:
         buffer = sys.stdin.read()
 
-    nc = NetCat(args, buffer.encode())
+    nc = PyNetCat(args, buffer.encode())
     nc.run()
